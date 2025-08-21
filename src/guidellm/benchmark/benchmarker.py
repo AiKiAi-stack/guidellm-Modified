@@ -1,4 +1,5 @@
 import time
+import os
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Iterable
@@ -184,18 +185,60 @@ class Benchmarker(Generic[AggregatorT, BenchmarkT, RequestT, ResponseT], ABC):
 
         while scheduling_strategy := profile.next_strategy():
             current_index += 1
+            # Determine per-strategy effective limits. For sweep profile and the
+            # first strategy (synchronous), if no global max-seconds was set,
+            # allow overriding via environment variables to cap by N requests or M seconds.
+            effective_max_number = max_number_per_strategy
+            effective_max_duration = max_duration_per_strategy
+            if (
+                getattr(profile, "type_", None) == "sweep"
+                and current_index == 0
+                and max_duration_per_strategy is None
+            ):
+                # Prefer GUIDELLM__SWEEP__SYNC_* (consistent with existing env style),
+                # fallback to GUIDELLM_SWEEP_SYNC_* for convenience.
+                env_max_requests = os.getenv("GUIDELLM__SWEEP__SYNC_MAX_REQUESTS") or os.getenv(
+                    "GUIDELLM_SWEEP_SYNC_MAX_REQUESTS"
+                )
+                env_max_seconds = os.getenv("GUIDELLM__SWEEP__SYNC_MAX_SECONDS") or os.getenv(
+                    "GUIDELLM_SWEEP_SYNC_MAX_SECONDS"
+                )
+
+                try:
+                    if env_max_requests is not None:
+                        parsed = int(env_max_requests)
+                        if parsed > 0:
+                            effective_max_number = parsed
+                except Exception:
+                    pass
+
+                try:
+                    if env_max_seconds is not None:
+                        parsed = float(env_max_seconds)
+                        if parsed > 0:
+                            effective_max_duration = parsed
+                except Exception:
+                    pass
+
+            iteration_limits = BenchmarkerStrategyLimits(
+                requests_loader_size=requests_loader_size,
+                max_number_per_strategy=effective_max_number,
+                max_duration_per_strategy=effective_max_duration,
+                warmup_percent_per_strategy=warmup_percent_per_strategy,
+                cooldown_percent_per_strategy=cooldown_percent_per_strategy,
+            )
             aggregator = self.create_benchmark_aggregator(
                 run_id=run_id,
                 profile=profile,
                 strategy_index=current_index,
                 strategy=scheduling_strategy,
-                limits=strategy_limits,
+                limits=iteration_limits,
             )
 
             async for result in self.scheduler.run(
                 scheduling_strategy=scheduling_strategy,
-                max_number=max_number_per_strategy,
-                max_duration=max_duration_per_strategy,
+                max_number=effective_max_number,
+                max_duration=effective_max_duration,
             ):
                 if result.type_ == "run_start":
                     yield BenchmarkerResult(
