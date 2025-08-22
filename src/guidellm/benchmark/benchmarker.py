@@ -197,10 +197,10 @@ class Benchmarker(Generic[AggregatorT, BenchmarkT, RequestT, ResponseT], ABC):
             ):
                 # Prefer GUIDELLM__SWEEP__SYNC_* (consistent with existing env style),
                 # fallback to GUIDELLM_SWEEP_SYNC_* for convenience.
-                env_max_requests = os.getenv("GUIDELLM__SWEEP__SYNC_MAX_REQUESTS") or os.getenv(
+                env_max_requests = os.getenv(
                     "GUIDELLM_SWEEP_SYNC_MAX_REQUESTS"
                 )
-                env_max_seconds = os.getenv("GUIDELLM__SWEEP__SYNC_MAX_SECONDS") or os.getenv(
+                env_max_seconds = os.getenv(
                     "GUIDELLM_SWEEP_SYNC_MAX_SECONDS"
                 )
 
